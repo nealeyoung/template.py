@@ -1,12 +1,10 @@
 # template.py
-Syntactic sugar for convenient templating in Python 3
 
-To try it, download the template.py module.  Additional documentation
-will be available via `pydoc template`.
+Syntactic sugar for convenient templating in Python 3.
 
-The template module adds syntactic sugar to Python to make templating
-easier.  Within template files, Python semantics are modified slightly as
-follows:
+Module template.py modifies Python semantics as described below.  To
+try it, download the template.py module.  Additional documentation
+will be available via `pydoc template`.  .
 
 ## Format strings via string dequoting
 
