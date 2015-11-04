@@ -117,10 +117,14 @@ def _template_init():
                 Gatherer._begin()
                 result1 = fn(*args, **kwds)
                 result2 = Gatherer._end()
-                assert result1 is None or result2 == ""
-                result = result2 if result1 is None else result1
-                assert result is not None
-                return result
+                if result1 is None:
+                    return result2
+                else:
+                    if result2 != "":
+                        print("template.py warning: discarding gathered value",
+                              '"' + result2 + '"', "from function", fn.__name__,
+                              file=sys.stderr)
+                    return result1
 
             fn2._neal_wraps = fn
             return fn2
