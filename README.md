@@ -112,3 +112,4 @@ the `template` module (either via `import template` or `import
 template.xxx` or similar).
 
 
+For comments or discussion, see [this reddit post](https://www.reddit.com/r/Python/comments/3rfha8/syntactic_sugar_for_python_templating_rfc/).
