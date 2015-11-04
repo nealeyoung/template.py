@@ -4,7 +4,7 @@ Syntactic sugar for convenient templating in Python 3.
 
 ### Features
 
-#### Format strings via string dequoting
+#### Substring dequoting
 
 WIthin string constants, {{ ... }} subtrings are "dequoted":
 
@@ -21,7 +21,7 @@ Dequoting can be nested.)  Also, substrings starting with "##" are
 removed (until the end of line; this is for commenting multi-line
 strings).
 
-#### Functions concatenate expression statements
+#### Shorthand for concatenating expressions
 
 Within a function, whenever a statement that consists of a Python
 expression is executed, instead of discarding the value of the
@@ -37,7 +37,7 @@ remembered expression values*:
 
         assert f() == " i 0 i 1 i 2"    # this assertion passes
 
-#### All templates share the global namespace
+#### All templates share a single global namespace
 
 When template files are imported, each is executed directly in the
 namespace of the top-level file.  Breaking modularity in this way
