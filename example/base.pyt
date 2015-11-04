@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
-# uncommenting the next line allows this file to be executed as a standalone template
-#import template
+# the next line just allows this file
+# to be executed as a standalone template
+import template
 
 x = 'default x'
 y = 'default y'

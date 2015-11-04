@@ -14,5 +14,4 @@ def f():
     ' f {{x}}'
 
 assert f() == "custom f default x"
-
 assert render() == "custom f default x custom y"

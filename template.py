@@ -32,26 +32,30 @@ function render defined below would return "1 Render a=A, f()=f A B."
             1
             " Render a={{a}}, f()={{f()}}."
 
-3. All .pyt files imported by "import template.xxx" use the namespace
-(that is, globals()) of the top-level file (both for variables and for
-function definitions).  Example:
+3. All .pyt files imported by "import template.xxx" are executed in
+the namespace (that is, globals()) of the module that imports the
+template module (both for variables and for function definitions).
+Example:
 
          # file parent.pyt
          import template.child
          a = 'X'; f = lambda: 'F {{a}} {{b}}'
 
-Then render() can be called in parent.pyt, and it would return the string
-"1 Render a=X, f()=F X B."
+Then render() can be called in parent.pyt, and it would return the
+string "1 Render a=X, f()=F X B."
 
-4. If the top-level file being executed is itself a .pyt file (and it
-executes any "import template" or "import template.xx" statements),
-then the top-level file is also executed using template semantics.
-(Such import statements should be at the top of the file, before any
-non-import statement.)  In this case, the file or one of its importing
-files should define a "render" function as in the example above.
-After the file is executed, render() is automatically called, and its
-return value is printed to sys.stdout.  Hence, executing "python3
-parent.pyt" in the shell would print "1 Render a=X. f()=X B.".
+4. If the module that first imports the template module (via any
+"import template" or "import template.xx" statement) is __main__ (the
+top-level module, the one that is executed initially), and __main__'s
+is itself a .pyt file (its name ends in '.pyt'), then __main__ is also
+executed using template semantics.  In this case, the "import
+template.."  statements should be at the top of __main__, before any
+non-import statement, and __main__ or one of the template files it
+imports directly or indirectly should define a "render" function as in
+the example above.  After __main__ is executed, render() is
+automatically called, and its return value is printed to sys.stdout.
+Hence, executing "python3 parent.pyt" in the shell would print "1
+Render a=X. f()=X B.".
 
 '''
 
@@ -76,18 +80,10 @@ def _template_init():
 
     import ast
 
-    import imp
+    # import imp
     # import importlib
 
     file_extension = '.pyt'
-
-    # ################################################ shared_globals
-
-    # All template files are executed in the top-level module namespace.
-    # (We'd prefer the namespace of the first module with "import template"
-    # or "import template.xxx", but don't know how to find that reliably.)
-
-    shared_globals = inspect.stack()[-1][0].f_globals
 
     # ################################################  compile_pyt_file
 
@@ -200,9 +196,8 @@ def _template_init():
         active = None
 
         def gather(expr_value):
-            if active is None or expr_value in ('', None):
-                return
-            active.append(str(expr_value))
+            if active is not None and expr_value not in ('', None):
+                active.append(str(expr_value))
 
         def decorate(fn):
             try:
@@ -235,47 +230,61 @@ def _template_init():
 
     gather, decorate = _gather_factory()
 
+    # ############################################ importer_.., host_...
+
+    # details of module that imports this module
+    _importer_stack_depth = next(i for i, f in enumerate(inspect.stack())
+                                 if i > 1 and f[3] == '<module>')
+    _importer_stack_frame = inspect.stack()[_importer_stack_depth][0]
+    _importer_globals = _importer_stack_frame.f_globals
+    _importer_module_name = _importer_globals['__name__']
+    _importer_module = sys.modules[_importer_module_name]
+
+    importer_filename = _importer_globals['__file__']
+    importer_is_main = _importer_module_name == '__main__'
+
+    assert importer_is_main == \
+        (_importer_stack_depth == len(inspect.stack())-1)
+
+    host_module = _importer_module
+    host_module_globals = _importer_module.__dict__
+
     # references to these two globals are injected by compile_pyt_file
-    shared_globals[gatherer_function_name] = gather
-    shared_globals[decorator_name] = decorate
+    host_module_globals[gatherer_function_name] = gather
+    host_module_globals[decorator_name] = decorate
 
     # ################################################  loader
 
     # Hook into python import system so that
     # 'import template.XXX'
-    # exec's XXX.pyt (compiled as pyt file) in the shared_globals namespace.
+    # exec's XXX.pyt (compiled as pyt file) in the host_globals namespace.
     # (See Python 3 documentation for sys.meta_path.)
 
+    def exec_file_in_host_module(path, template_module_name):
+        nonlocal host_module_globals, host_module
+
+        sys.modules.setdefault(template_module_name, host_module)
+
+        # print("INJECTING", filename, file=sys.stderr)
+        code_obj = compile_pyt_file(path)
+        exec(code_obj, host_module_globals)
+
+        return host_module
+
     class _Loader:
-        def find_module(self, module_name, path=None):
-            return self if module_name.startswith("template.") else None
+        def find_module(self, template_module_name, path=None):
+            return self if template_module_name.startswith("template.") \
+                else None
 
-        def exec_file_in_shared_globals(self, path, module_name):
-            nonlocal shared_globals
-
-            # Insert stub module in import module cache
-            stub = imp.new_module(module_name)
-            stub.__file__ = path
-            stub.__path__ = []
-            stub.__loader__ = self
-            stub.about = path + " was executed in global namespace"
-            sys.modules.setdefault(module_name, stub)
-
-            # print("INJECTING", filename, file=sys.stderr)
-
-            code_obj = compile_pyt_file(path)
-            exec(code_obj, shared_globals)
-            return stub
-
-        def load_module(self, module_name, directory=None):
+        def load_module(self, template_module_name):
             # print("--- loading template", module_name, "---",
             #       file=sys.stderr)
-            assert module_name.startswith("template.")
+            assert template_module_name.startswith("template.")
             try:
-                return sys.modules[module_name]
+                return sys.modules[template_module_name]
             except KeyError:
                 pass
-            filename = module_name[len("template."):] + file_extension
+            filename = template_module_name[len("template."):] + file_extension
             for d in sys.path:
                 path = os.path.join(d, filename)
                 if os.path.isfile(path):
@@ -285,17 +294,17 @@ def _template_init():
                       filename, file=sys.stderr)
                 raise ImportError
 
-            return self.exec_file_in_shared_globals(path, module_name)
+            return exec_file_in_host_module(path, template_module_name)
 
     loader = _Loader()
 
     # ################################################  try_render
 
     def try_render():
-        nonlocal shared_globals
+        nonlocal host_module_globals
 
         # https://docs.python.org/2/library/atexit.html
-        render = shared_globals.get("render")
+        render = host_module_globals.get("render")
         if isinstance(render, types.FunctionType):
             # print("calling render")
             try:
@@ -327,19 +336,17 @@ def _template_init():
         '''
         loader.load_module(module_name)
 
-
     # atexit.register(render_and_exit)
 
-    # If the file that imported us is a pyt file,
-    # reload it as pyt template, then call render() and exit.
-    # Note that template.py code is executed only for the _first_
-    # "import template" or "import template.XXX".  We assume
-    # this occurs in the top-level (i.e., executed) file.
-    filename = shared_globals['__file__']
-    basename, extension = os.path.splitext(filename)
-    if extension == file_extension:
-        module_name = "template." + basename
-        loader.exec_file_in_shared_globals(filename, module_name)
+    # If __main__ imported us and is a pyt file, reload it as pyt template,
+    # then call render() and exit.
+
+    basename, extension = os.path.splitext(importer_filename)
+
+    if importer_is_main and extension == file_extension:
+        base = os.path.splitext(os.path.basename(importer_filename))[0]
+        template_module_name = 'template.' + base
+        exec_file_in_host_module(importer_filename, template_module_name)
         status = try_render()
         sys.exit(status)
 
