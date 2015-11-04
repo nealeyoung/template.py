@@ -72,101 +72,95 @@ def _template_init():
 
     import inspect
     import types
-    import atexit
+    # import atexit
 
     import ast
 
     import imp
     # import importlib
 
-    # ################################################ Gatherer.gather
-    # ################################################ Gatherer.decorate
+    file_extension = '.pyt'
 
-    class Gatherer:
-        _active = None
+    # ################################################ shared_globals
 
-        @classmethod
-        def _begin(cls):
-            self = cls()
-            self.prev = cls._active
-            self.strings = []
-            cls._active = self
+    # All template files are executed in the top-level module namespace.
+    # (We'd prefer the namespace of the first module with "import template"
+    # or "import template.xxx", but don't know how to find that reliably.)
 
-        @classmethod
-        def _end(cls):
-            self = cls._active
-            cls._active = self.prev
-            return "".join(self.strings)
+    shared_globals = inspect.stack()[-1][0].f_globals
 
-        @classmethod
-        def gather(cls, segment):
-            if (not cls._active) or segment in ('', None):
-                return
-            segment = str(segment)
-            cls._active.strings.append(segment)
+    # ################################################  compile_pyt_file
 
-        @staticmethod
-        def decorate(fn):
-            try:
-                fn = getattr(fn, '_neal_wraps')
-            except AttributeError:
-                pass
-
-            @functools.wraps(fn)
-            def fn2(*args, **kwds):
-                Gatherer._begin()
-                result1 = fn(*args, **kwds)
-                result2 = Gatherer._end()
-                if result1 is None:
-                    return result2
-                else:
-                    if result2 != "":
-                        print("template.py warning: discarding gathered value",
-                              '"' + result2 + '"', "from function", fn.__name__,
-                              file=sys.stderr)
-                    return result1
-
-            fn2._neal_wraps = fn
-            return fn2
-
-    # ################################################  pyt_file_to_codeobj
-    # ################################################
-
-    def _split_top_level(s):
-        d = i = 0
-        start = 0
-        while i+2 <= len(s):
-            if s[i:i+2] == '{{':
-                if d == 0:
-                    yield (0, start, i)
-                    start = i+2
-                d += 1
-                i += 2
-            elif s[i:i+2] == '}}':
-                d -= 1
-                if d < 0:
-                    raise Exception("unbalanced format string " + str(d))
-                if d == 0:
-                    yield (1, start, i)
-                    start = i+2
-                i += 2
-            else:
-                i += 1
-        if d > 0:
-            raise Exception("unbalanced format string " + str(d))
-        yield (0, start, len(s))
+    def _split_by_braces(strng):
+        '''
+        Split strng into pieces separated by _top_level_ pairs of braces.
+        e.g. split 'aa{{b{{c}} }}d{{e}}' to ['aa', ' b{{c}} ', 'd', 'e', ''].
+        For each piece, return (depth, piece). Depth alternates 0 and 1.
+        '''
+        start = depth = 0
+        for match in re.finditer(r"{{|}}", strng):
+            prev_depth = depth
+            depth += 1 if match.group(0) == '{{' else -1
+            if depth < 0:
+                raise Exception("unbalanced format string " + strng)
+            if depth == 0 or prev_depth == 0:
+                yield (prev_depth, strng[start:match.start()])
+                start = match.end()
+        if depth > 0:
+            raise Exception("unbalanced format string " + strng)
+        yield (depth, strng[start:len(strng)])
 
     gatherer_function_name = "_template_gather_"
-    gatherer_function = Gatherer.gather
     decorator_name = "_template_decorator_"
-    decorator_function = Gatherer.decorate
 
     class _Pyt_to_python(ast.NodeTransformer):
+        '''
+        Transform pyt abstract syntax tree into python AST.
+        See e.g. https://greentreesnakes.readthedocs.org/en/latest/.
+        '''
+
+        def visit_Str(self, str_node):
+            '''
+            Replace each string constant with its {{...}} expansion.
+            '''
+            s = str_node.s
+            s = re.sub(r"##.*", "", s)
+            split = tuple(_split_by_braces(s))
+            if len(split) == 0 or (len(split) == 1 and s == str_node.s):
+                return str_node
+
+            args = []
+            for depth, substr in split:
+                if substr:
+                    if depth == 0:
+                        args.append(ast.Str(s=substr))
+                    else:
+                        try:
+                            arg_node = ast.parse("str(" + substr + ")",
+                                                 filename="<format string>",
+                                                 mode='eval')
+                        except:
+                            print("format parse error", file=sys.stderr)
+                            print('substring', substr, file=sys.stderr)
+                            print('File "' + filename +
+                                  '", line', str_node.lineno, file=sys.stderr)
+                            sys.exit(1)
+                        args.append(self.generic_visit(arg_node.body))
+
+            func_node = ast.Attribute(value=ast.Str(""),
+                                      attr="join",
+                                      ctx=ast.Load())
+            call_node = ast.Call(func=func_node,
+                                 args=[ast.Tuple(elts=args, ctx=ast.Load())],
+                                 keywords=[],
+                                 starargs=None,
+                                 kwargs=None)
+            return call_node
 
         def visit_Expr(self, node):
             '''
-            Expr's are top-level expressions whose values are normally discarded.
-            Modify the tree to call the gatherer function on each instead.
+            Expr's are statement-expressions.
+            Modify the tree to call gather on the value of each.
             '''
             node = self.generic_visit(node)
             func = ast.Name(id=gatherer_function_name,
@@ -181,118 +175,107 @@ def _template_init():
 
         def visit_FunctionDef(self, node):
             '''
-            Add the decorator to every function definition.
+            Add decorate decorator to every function definition.
             '''
             node = self.generic_visit(node)
             func = ast.Name(id=decorator_name, ctx=ast.Load())
             node.decorator_list.append(func)
             return node
 
-        def visit_Str(self, str_node):
-            '''
-            Replace each string constant with its {{...}} expansion.
-            '''
-            s = str_node.s
-            s = re.sub(r"##.*", "", s)
-            split = tuple(_split_top_level(s))
-            if len(split) == 0 or (len(split) == 1 and s == str_node.s):
-                return str_node
-
-            args = []
-            for to_parse, i, j in split:
-                assert i <= j
-                if i == j:
-                    continue
-                if not to_parse:
-                    node1 = ast.Str(s=s[i:j])
-                else:
-                    try:
-                        node1 = ast.parse("str(" + s[i:j] + ")",
-                                          filename="<format string>",
-                                          mode='eval')
-                    except:
-                        print("format parse error", file=sys.stderr)
-                        print('fragment', s[i:j], file=sys.stderr)
-                        print('File "' + filename +
-                              '", line', str_node.lineno, file=sys.stderr)
-                        sys.exit(1)
-                    node1 = node1.body
-                    node1 = self.generic_visit(node1)
-                args.append(node1)
-
-            args = [ast.Tuple(elts=args, ctx=ast.Load())]
-            func_node = ast.Attribute(value=ast.Str(""),
-                                      attr="join",
-                                      ctx=ast.Load())
-            call_node = ast.Call(func=func_node,
-                                 args=args,
-                                 keywords=[],
-                                 starargs=None,
-                                 kwargs=None)
-            return call_node
-
-    _pyt_to_python = _Pyt_to_python().visit
-
-    def pyt_file_to_codeobj(filename):
+    def compile_pyt_file(filename):
         '''
         Return python codeobj for pyt source in filename.
         '''
-
-        assert os.path.splitext(filename)[1] == ".pyt"
-
+        assert os.path.splitext(filename)[1] == file_extension
         with open(filename) as f:
             code = f.read()
         tree = ast.parse(code, filename=filename, mode='exec')
-        tree = _pyt_to_python(tree)
+        tree = _Pyt_to_python().visit(tree)
         ast.fix_missing_locations(tree)
-        codeobj = compile(tree, filename, mode='exec', dont_inherit=True)
-        return codeobj
+        return compile(tree, filename, mode='exec', dont_inherit=True)
+
+    # ################################################ gather, decorate
+
+    def _gather_factory():
+        active = None
+
+        def gather(expr_value):
+            if active is None or expr_value in ('', None):
+                return
+            active.append(str(expr_value))
+
+        def decorate(fn):
+            try:
+                fn = getattr(fn, '_template_wraps')
+            except AttributeError:
+                pass
+
+            @functools.wraps(fn)
+            def fn2(*args, **kwds):
+                nonlocal active
+
+                tmp, active = active, []
+                result1 = fn(*args, **kwds)
+                result2 = "".join(active)
+                active = tmp
+
+                if result1 is None:
+                    return result2
+                if result2 != "":
+                    print("template.py warning: discarding gathered value",
+                          '"' + result2 + '"',
+                          "from function", fn.__name__,
+                          file=sys.stderr)
+                return result1
+
+            fn2._template_wraps = fn
+            return fn2
+
+        return gather, decorate
+
+    gather, decorate = _gather_factory()
+
+    # references to these two globals are injected by compile_pyt_file
+    shared_globals[gatherer_function_name] = gather
+    shared_globals[decorator_name] = decorate
 
     # ################################################  loader
-    # ################################################
 
-    # modify python import system so that
-    # import template.XXX
-    # calls load_module('template.XXX') below
+    # Hook into python import system so that
+    # 'import template.XXX'
+    # exec's XXX.pyt (compiled as pyt file) in the shared_globals namespace.
+    # (See Python 3 documentation for sys.meta_path.)
+
     class _Loader:
-        def find_module(self, fullname, path=None):
-            if fullname.startswith("template."):
-                return self
-            return None
+        def find_module(self, module_name, path=None):
+            return self if module_name.startswith("template.") else None
 
-        def load_file(self, path, modulename):
-            nonlocal template_globals
+        def exec_file_in_shared_globals(self, path, module_name):
+            nonlocal shared_globals
 
-            m = imp.new_module(modulename)
-            m.__file__ = modulename
-            m.__path__ = []
-            m.__loader__ = self
-            m.about = "This pyt was injected directly into global namespace"
-            sys.modules.setdefault(modulename, m)
+            # Insert stub module in import module cache
+            stub = imp.new_module(module_name)
+            stub.__file__ = path
+            stub.__path__ = []
+            stub.__loader__ = self
+            stub.about = path + " was executed in global namespace"
+            sys.modules.setdefault(module_name, stub)
 
             # print("INJECTING", filename, file=sys.stderr)
 
-            code_obj = pyt_file_to_codeobj(path)
-            exec(code_obj, template_globals)
-            return m
+            code_obj = compile_pyt_file(path)
+            exec(code_obj, shared_globals)
+            return stub
 
-        def load_module(self, fullname, directory=None):
-            # print("--- loading template", fullname, "---", file=sys.stderr)
-
-            if os.path.splitext(fullname)[1] == ".pyt":
-                fullname = fullname[:-len(".pyt")]
-
+        def load_module(self, module_name, directory=None):
+            # print("--- loading template", module_name, "---",
+            #       file=sys.stderr)
+            assert module_name.startswith("template.")
             try:
-                return sys.modules[fullname]
+                return sys.modules[module_name]
             except KeyError:
                 pass
-
-            assert fullname.startswith("template.")
-            filename = fullname[len("template."):]
-
-            if not filename.endswith(".pyt"):
-                filename += ".pyt"
-
+            filename = module_name[len("template."):] + file_extension
             for d in sys.path:
                 path = os.path.join(d, filename)
                 if os.path.isfile(path):
@@ -302,19 +285,17 @@ def _template_init():
                       filename, file=sys.stderr)
                 raise ImportError
 
-            m = self.load_file(path, fullname)
-            return m
+            return self.exec_file_in_shared_globals(path, module_name)
 
     loader = _Loader()
 
     # ################################################  try_render
-    # ################################################
 
     def try_render():
-        nonlocal template_globals
+        nonlocal shared_globals
 
         # https://docs.python.org/2/library/atexit.html
-        render = template_globals.get("render")
+        render = shared_globals.get("render")
         if isinstance(render, types.FunctionType):
             # print("calling render")
             try:
@@ -330,46 +311,35 @@ def _template_init():
         return status
 
     # ################################################  CODE
-    # ################################################
 
     # print("setting up template system")
 
-    # set up mechanism to support "import template.xxx"
-    # for loading template in file "xxx.pyt"
+    # set up support of "import template.xxx"
     sys.meta_path.append(loader)
 
-    # but "import template.xx.yy" doesn't work (in case of file "xx.yy.pyt")
-    # provide replacement "template.load("xx.yy")"
-
+    # define global load function
     global load
 
-    def load(modulename):
+    def load(module_name):
         '''
         "template.load('x')" is equivalent to "import template.x",
         except it also works when the module name contains periods.
         '''
-        loader.load_module(modulename)
+        loader.load_module(module_name)
 
-    # all loaded pyt files share globals with the top-level module
-    # (we'd prefer the first module with "import template" or
-    # "import template.xxx", but that seems harder to do reliably)
-    template_globals = inspect.stack()[-1][0].f_globals
-
-    # references to these two globals are injected by pyt_file_to_codeobj
-    template_globals[gatherer_function_name] = gatherer_function
-    template_globals[decorator_name] = decorator_function
 
     # atexit.register(render_and_exit)
 
     # If the file that imported us is a pyt file,
     # reload it as pyt template, then call render() and exit.
-    # Note that _template_init() is called only for the forst
-    # "import template" or "import template.XXX"
-    filename = template_globals['__file__']
+    # Note that template.py code is executed only for the _first_
+    # "import template" or "import template.XXX".  We assume
+    # this occurs in the top-level (i.e., executed) file.
+    filename = shared_globals['__file__']
     basename, extension = os.path.splitext(filename)
-    if extension == '.pyt':
-        modulename = "template." + basename
-        loader.load_file(filename, modulename)
+    if extension == file_extension:
+        module_name = "template." + basename
+        loader.exec_file_in_shared_globals(filename, module_name)
         status = try_render()
         sys.exit(status)
 
