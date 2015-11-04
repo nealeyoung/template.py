@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
-'''
-Syntactic sugar for convenient template generation in python3.
+'''Syntactic sugar for convenient template generation in python3.
 
 The "template" module tweaks the python3 import system so that (assuming
 the template module is on the python import path) the statement
@@ -14,6 +13,9 @@ file as python but with modified "template" semantics:
 1. Before execution, in every string constant, each {{...}} substring is
 "dequoted".  E.g. "a{{b}}c" is replaced by "a" + str(b) + "c".  Dequoting
 nests: "a {{f('{{x}} b')}} c" becomes "a " + str(f(str(x) + " b")) + "c".
+
+Also, substrings starting with "##" are removed (until the end of
+line; this is for commenting multi-line strings).
 
 2. Each function definition is modified so that during execution of
 the function, whenever a statement that consists solely of an
