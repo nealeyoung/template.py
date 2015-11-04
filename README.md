@@ -40,10 +40,10 @@ remembered expression values*:
 #### All templates share a single global namespace
 
 When template files are imported, each is executed directly in the
-namespace of the top-level file.  Breaking modularity in this way
-makes it easy to define a base template with parameters and blocks,
-which can be over-ridden to customize the template.  For example,
-suppose file `base.pyt` contains
+namespace of the file that first imports template.  Breaking
+modularity in this way makes it easy to define a base template with
+parameters and blocks, which can be over-ridden to customize the
+template.  For example, suppose file `base.pyt` contains
 
     in file base.pyt:
 
