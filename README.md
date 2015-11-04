@@ -15,7 +15,9 @@ WIthin string constants, {{ ... }} subtrings are "dequoted":
 
         x = "".join(str(b), " world")
 
-Dequoting can be nested.)
+Dequoting can be nested.)  Also, substrings starting with "##" are
+removed (until the end of line; this is for commenting multi-line
+strings).
 
 ## Functions concatenate expression statements
 
