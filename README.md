@@ -21,7 +21,7 @@ Dequoting can be nested.)  Also, substrings starting with "##" are
 removed (until the end of line; this is for commenting multi-line
 strings).
 
-#### Shorthand for concatenating expressions
+#### Shorthand for gathering and concatenating expressions
 
 Within a function, whenever a statement that consists of a Python
 expression is executed, instead of discarding the value of the
