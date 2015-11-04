@@ -2,7 +2,9 @@
 
 Syntactic sugar for convenient templating in Python 3.
 
-## Format strings via string dequoting
+## Features
+
+### Format strings via string dequoting
 
 WIthin string constants, {{ ... }} subtrings are "dequoted":
 
@@ -19,7 +21,7 @@ Dequoting can be nested.)  Also, substrings starting with "##" are
 removed (until the end of line; this is for commenting multi-line
 strings).
 
-## Functions concatenate expression statements
+### Functions concatenate expression statements
 
 Within a function, whenever a statement that consists of a Python
 expression is executed, instead of discarding the value of the
@@ -35,7 +37,7 @@ remembered expression values*:
 
         assert f() == " i 0 i 1 i 2"    # this assertion passes
 
-## All templates share the global namespace
+### All templates share the global namespace
 
 When template files are imported, each is executed directly in the
 namespace of the top-level file.  Breaking modularity in this way
@@ -86,16 +88,18 @@ functions defined in `base.pyt` are included directly into
 `custom.pyt`.  Consequently, the changes that `custom.py` makes to `y`
 and `f` are reflected in the output of `render()`.
 
-## Automatic execution of "render()"
+### Automatic execution of "render()"
 
 After a template file executes, the function `render()` is
 automatically called (with no arguments).  The output is printed to
 `sys.stdout`.  In the example above, executing the file `custom.pyt`
 will print "custom f custom x default y".
 
-## How to make Python treat a file as a "template file"?
+## Installation and usage
 
-For Python to treat a file named "xxx.pyt" as a template file
+Download the template.py file and put in somewhere on your module path.
+
+Then, to make Python treat a file named "xxx.pyt" as a template file
 (enabling the features above), the file name must end in ".pyt".
 Also, one of two other things has to happen:
 
