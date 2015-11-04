@@ -17,7 +17,7 @@ WIthin string constants, {{ ... }} subtrings are "dequoted":
 
 Dequoting can be nested.)
 
-## Functions concatenate expression statements.
+## Functions concatenate expression statements
 
 Within a function, whenever a statement that consists of a Python
 expression is executed, instead of discarding the value of the
@@ -45,29 +45,44 @@ suppose file `base.pyt` contains
 
         x = 'default x'
         y = 'default y'
-        
+    
         def f():
-            'default f {{x}} {{y}}'
-
+            'default'
+            ' f {{x}}'
+    
+        assert f() == "default f default x"
+    
         def render():
-            f(1)
+            '{{f()}} {{y}}'
+    
+        assert render() == "default f default x default y"
 
 Then file `custom.pyt` can contain
 
     in file custom.pyt:
 
-        #/usr/bin/env python3
+        #!/usr/bin/env python3
 
         import template.base
 
-        x = 'custom x'
+        assert \
+            set(k for k in globals() if not k.startswith('_')) == \
+            set(('x', 'f', 'template', 'y', 'render'))
+    
+        y = 'custom y'
+    
         def f():
-            'custom f {{x}} {{y}}'
+            'custom'
+            ' f {{x}}'
+    
+        assert f() == "custom f default x"
+        assert render() == "custom f default x custom y"
 
-        assert render() == "custom f custom x default y"   # passes
-
-In `custom.pyt`, the variable `x` refers to the same variable as it
-does within `base.pyt`.  Likewise for the functions `f` and `render`.
+Importing `base.pyt` via `import template.base` executes `base.pyt`
+directly in the namespace of `custom.pyt`, so all variables and
+functions defined in `base.pyt` are included directly into
+`custom.pyt`.  Consequently, the changes that `custom.py` makes to `y`
+and `f` are reflected in the output of `render()`.
 
 ## Automatic execution of "render()"
 
