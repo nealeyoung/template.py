@@ -3,8 +3,8 @@
 import template.base
 
 assert \
-    set(k for k in globals() if not k.startswith('_')) == \
-    set(('x', 'f', 'template', 'y', 'render'))
+    {k for k in globals() if not k.startswith('_')} == \
+    {'x', 'f', 'template', 'y', 'render'}
 
 y = 'custom y'
 
