@@ -97,7 +97,7 @@ will print "custom f custom x default y".
 
 ## Installation and usage
 
-Download the template.py file and put in somewhere on your module path.
+Download the template.py file and put it somewhere on your module path.
 
 Then, to make Python treat a file named "xxx.pyt" as a template file
 (enabling the features above), the file name must end in ".pyt".
@@ -109,6 +109,6 @@ Also, one of two other things has to happen:
 2. File `xxx.pyt` is executed directly (e.g. via a shell command such
 as `python3 xxx.pyt` or just `xxx.pyt`) *and* file `xxx.pyt` imports
 the `template` module (either via `import template` or `import
-template.base`).
+template.xxx` or similar).
 
 
