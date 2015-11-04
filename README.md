@@ -70,8 +70,8 @@ Then file `custom.pyt` can contain
         import template.base
 
         assert \
-            set(k for k in globals() if not k.startswith('_')) == \
-            set(('x', 'f', 'template', 'y', 'render'))
+            {k for k in globals() if not k.startswith('_')} == \
+            {'x', 'y', 'f', 'render', 'template'}
     
         y = 'custom y'
     
