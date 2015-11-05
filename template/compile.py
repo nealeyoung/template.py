@@ -43,9 +43,7 @@ def compile_template_file(filename):
     try:
         return compile(python_AST, filename, mode='exec', dont_inherit=True)
     except:
-        print("UNEXPECTED ERROR COMPILING TEMPLATE",
-              file=sys.stderr)
-        raise
+        assert False, "UNEXPECTED ERROR COMPILING TEMPLATE"
 
 
 def _split_by_braces(strng):
