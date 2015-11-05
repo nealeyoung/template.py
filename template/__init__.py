@@ -90,8 +90,8 @@ assert importer_is_main == \
 host_module = _importer_module
 host_module_globals = _importer_module.__dict__
 
-from .gatherer import gather, decorator
-from .loader import loader, exec_file_in_host_module
+from .gather import gather, decorator
+from .load import loader, exec_template_in_host_module
 
 # ################################################  try_render
 
@@ -142,6 +142,6 @@ basename, extension = os.path.splitext(importer_filename)
 if importer_is_main and extension == file_extension:
     base = os.path.splitext(os.path.basename(importer_filename))[0]
     template_module_name = 'template.' + base
-    exec_file_in_host_module(importer_filename, template_module_name)
+    exec_template_in_host_module(importer_filename, template_module_name)
     status = try_render()
     sys.exit(status)
