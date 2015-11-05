@@ -67,24 +67,40 @@ import types
 
 __all__ = ["load"]
 
-_template_hide_traceback_ = True
+_template_hide_module_in_traceback_ = True
 
 
-# in any traceback, hide stack frames from this package
-# http://stackoverflow.com/questions/31949760/how-to-limit-python-traceback-to-specific-files
-def _exception_hook(Type, value, tb, original_excepthook=sys.excepthook):
-    import traceback as TB
-    skip = 1
-    while tb:
-        if '_template_hide_traceback_' not in tb.tb_frame.f_globals:
-            if skip:
-                skip -= 1
-            else:
-                TB.print_tb(tb, limit=1)
-        tb = tb.tb_next
-    print(Type.__name__ + ":", value, file=sys.stderr)
+class Template_traceback_frames_hidden:
+    '''Context manager. Sets sys.excepthook so that, if an exception is
+    raised, the traceback printed will skip frames from any modules in
+    which _template_hide_module_in_traceback_ is defined and True
+    (when interpreted as a Boolean).  We use this when parsing or
+    executing a user's template, to declutter the stack trace by
+    removing frames from this module.
 
-sys.excepthook = _exception_hook
+    '''
+    @staticmethod
+    def excepthook(Type, value, tb, original_excepthook=sys.excepthook):
+        import traceback as TB
+        skip = 1
+        while tb:
+            if not tb.tb_frame.f_globals.get('_template_hide_module_in_traceback_'):
+                if skip:
+                    skip -= 1
+                else:
+                    TB.print_tb(tb, limit=1)
+            tb = tb.tb_next
+        print(Type.__name__ + ":", value,
+              file=sys.stderr)
+
+    def __enter__(self):
+        self.save_excepthook = sys.excepthook
+        sys.excepthook = self.excepthook
+
+    def __exit__(self, *args):
+        sys.excepthook = self.save_excepthook
+
+template_traceback_frames_hidden = Template_traceback_frames_hidden()
 
 # ################################################ module constants
 
@@ -144,8 +160,8 @@ if importer_is_main and extension == file_extension:
     # https://docs.python.org/2/library/atexit.html
     render = host_module_globals.get("render")
     if isinstance(render, types.FunctionType):
-        # error handling handled by sys.excepthook at top of __init__.py
-        print(render(), end="")
+        with template_traceback_frames_hidden:
+            print(render(), end="")
         sys.exit(0)
     else:
         print("no render function defined for template", file=sys.stderr)

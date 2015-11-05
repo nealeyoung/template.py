@@ -6,7 +6,7 @@ import os
 from .compile import exec_template_in_host_module
 from . import file_extension, host_module
 
-_template_hide_traceback_ = True
+_template_hide_module_in_traceback_ = True
 
 
 class _Loader:

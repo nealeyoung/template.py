@@ -3,7 +3,9 @@
 import functools
 import sys
 
-_template_hide_traceback_ = True
+from . import template_traceback_frames_hidden
+
+_template_hide_module_in_traceback_ = True
 
 active = None
 
@@ -40,7 +42,10 @@ def decorator(fn):
         global active
 
         tmp, active = active, []
-        result1 = fn(*args, **kwds)
+
+        with template_traceback_frames_hidden:
+            result1 = fn(*args, **kwds)
+
         result2 = "".join(active)
         active = tmp            # restore previously active list
 

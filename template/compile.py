@@ -6,10 +6,10 @@ import os
 import re
 import itertools
 
-from . import decorator_name, gatherer_function_name
-from . import file_extension, host_module_globals
+from . import decorator_name, gatherer_function_name, file_extension
+from . import host_module_globals, template_traceback_frames_hidden
 
-_template_hide_traceback_ = True
+_template_hide_module_in_traceback_ = True
 
 _FILENAME = None
 
@@ -88,7 +88,7 @@ class _Pyt_to_python(ast.NodeTransformer):
             except SyntaxError:
                 if len(substr) > 1000:
                     substr = substr[:1000] + "..."
-                print('File "%s", line %s, in dequote substring\n   {{ %s }}' %
+                print('File "%s", line %s, in substring\n   {{ %s }}' %
                       (_FILENAME, node.lineno, substr),
                       file=sys.stderr)
                 print("SyntaxError: invalid syntax", file=sys.stderr)
@@ -108,7 +108,7 @@ class _Pyt_to_python(ast.NodeTransformer):
         except AssertionError:
             if len(s) > 1000:
                 s = s[:1000] + "..."
-            print('File "%s", line %s, in dequote\n    "%s"' %
+            print('File "%s", line %s, in string\n    "%s"' %
                   (_FILENAME, node.lineno, s),
                   file=sys.stderr)
             print("SyntaxError: unbalanced dequote braces", file=sys.stderr)
@@ -166,5 +166,6 @@ def exec_template_in_host_module(filename):
     global host_module_globals
     assert os.path.splitext(filename)[1] == file_extension
     codeobj = compile_template_file(filename)
-    # error handling handled by sys.excepthook at top of __init__.py
-    exec(codeobj, host_module_globals)
+
+    with template_traceback_frames_hidden:
+        exec(codeobj, host_module_globals)
