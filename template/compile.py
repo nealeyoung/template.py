@@ -7,7 +7,7 @@ import re
 from . import decorator_name, gatherer_function_name
 
 
-def compile_pyt(filename):
+def compile_template_file(filename):
     '''
     Return python codeobj for pyt source in filename.
     '''

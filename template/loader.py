@@ -3,7 +3,7 @@
 import sys
 import os
 
-from .compile_pyt import compile_pyt
+from .compile import compile_template_file
 from . import file_extension, host_module, host_module_globals
 
 # See Python 3 documentation for sys.meta_path.
@@ -47,7 +47,7 @@ def exec_file_in_host_module(path, template_module_name):
     sys.modules.setdefault(template_module_name, host_module)
 
     # print("INJECTING", filename, file=sys.stderr)
-    code_obj = compile_pyt(path)
+    code_obj = compile_template_file(path)
     exec(code_obj, host_module_globals)
 
     return host_module
