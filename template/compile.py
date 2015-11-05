@@ -2,12 +2,16 @@
 
 import ast
 import sys
+import os
 import re
 import itertools
 
 from . import decorator_name, gatherer_function_name
+from . import file_extension, host_module_globals
 
-_filename = None
+_template_hide_traceback_ = True
+
+_FILENAME = None
 
 
 def compile_template_file(filename):
@@ -20,28 +24,34 @@ def compile_template_file(filename):
 
     # Template file syntax is valid Python syntax,
     # but with slightly different semantics.
+
     # 1. Parse the template file using Python syntax.
+    # Relying on ast.parse to report syntax errors in template.
 
     template_AST = ast.parse(code, filename=filename, mode='exec')
 
     # 2. Change the syntax tree to implement the modified semantics.
 
-    global _filename, _pyt_to_python
-    _filename = filename
+    global _FILENAME
+    _FILENAME = filename        # used by next call
     python_AST = _pyt_to_python.visit(template_AST)
-
     ast.fix_missing_locations(python_AST)
 
     # 3. Compile the modified syntax tree as Python.
 
-    return compile(python_AST, filename, mode='exec', dont_inherit=True)
+    # TODO: do we need error handling here?
+    try:
+        return compile(python_AST, filename, mode='exec', dont_inherit=True)
+    except:
+        print("UNEXPECTED ERROR COMPILING TEMPLATE",
+              file=sys.stderr)
+        raise
 
 
 def _split_by_braces(strng):
     '''
-    Split strng into pieces separated by _top_level_ pairs of braces.
+    Split strng into pieces separated by _top level_ pairs of braces.
     e.g. split 'aa{{b{{c}} }}d{{e}}' to ['aa', ' b{{c}} ', 'd', 'e', ''].
-    For each piece, return (depth, piece). Depth alternates 0 and 1.
 
     Used below to implement the dequote mechanism.
     '''
@@ -49,55 +59,62 @@ def _split_by_braces(strng):
     for match in re.finditer(r"{{|}}", strng):
         prev_depth = depth
         depth += 1 if match.group(0) == '{{' else -1
-        if depth < 0:
-            raise Exception("unbalanced format string " + strng)
+        assert depth >= 0
         if depth == 0 or prev_depth == 0:
             yield strng[start:match.start()]
             start = match.end()
-    if depth > 0:
-        raise Exception("unbalanced format string " + strng)
+    assert depth == 0
     yield strng[start:len(strng)]
 
 
 class _Pyt_to_python(ast.NodeTransformer):
-    '''
-    Given pyt abstract syntax tree (AST), transform it into a python AST.
-    See e.g. https://greentreesnakes.readthedocs.org/en/latest/.
-    '''
+    '''Given abstract syntax tree (AST) for a template, transform it into
+    a python AST.  See https://greentreesnakes.readthedocs.org/en/latest/.
 
+    '''
     def visit_Str(self, node):
-        '''
-        Dequote each string constant (expand {{...}} appropriately).
+        '''Dequote each string constant (expand {{...}} appropriately).
+
         '''
 
         def str_node(substr):
-            assert isinstance(substr, str)
             return ast.Str(s=substr)
 
         def parse_tree(substr):
-            global _filename
+            str_substr = "str(%s)" % substr
+            filename_for_parse = "<parse string>"
             try:
-                arg_node = ast.parse("str(" + substr + ")",
-                                     filename="<format string>",
-                                     mode='eval').body
-            except:
-                print("format parse error", file=sys.stderr)
-                print('substring', substr, file=sys.stderr)
-                print('File "' + _filename +
-                      '", line', node.lineno, file=sys.stderr)
+                arg_node = ast.parse(str_substr,
+                                     filename=filename_for_parse,
+                                     mode='eval')
+            except SyntaxError:
+                if len(substr) > 1000:
+                    substr = substr[:1000] + "..."
+                print('File "%s", line %s, in dequote substring\n   {{ %s }}' %
+                      (_FILENAME, node.lineno, substr),
+                      file=sys.stderr)
+                print("SyntaxError: invalid syntax", file=sys.stderr)
                 sys.exit(1)
 
             # recursively process the new subtree
-            return self.generic_visit(arg_node)
+            return self.generic_visit(arg_node.body)
 
         s = node.s
         s = re.sub(r"##.*", "", s)  # remove comments
         if not s:
             return str_node("")
 
-        # split s around its {{ ... }} segments
-        # see doc for _split_by_braces
-        split = tuple(_split_by_braces(s))
+        try:
+            # see doc for _split_by_braces
+            split = tuple(_split_by_braces(s))
+        except AssertionError:
+            if len(s) > 1000:
+                s = s[:1000] + "..."
+            print('File "%s", line %s, in dequote\n    "%s"' %
+                  (_FILENAME, node.lineno, s),
+                  file=sys.stderr)
+            print("SyntaxError: unbalanced dequote braces", file=sys.stderr)
+            sys.exit(1)
 
         if len(split) == 1:
             return ast.Str(s=split[0])
@@ -142,3 +159,14 @@ class _Pyt_to_python(ast.NodeTransformer):
         return node
 
 _pyt_to_python = _Pyt_to_python()
+
+
+def exec_template_in_host_module(filename):
+    '''
+    Compile template file and execute it in host-module namespace
+    '''
+    global host_module_globals
+    assert os.path.splitext(filename)[1] == file_extension
+    codeobj = compile_template_file(filename)
+    # error handling handled by sys.excepthook at top of __init__.py
+    exec(codeobj, host_module_globals)

@@ -67,6 +67,25 @@ import types
 
 __all__ = ["load"]
 
+_template_hide_traceback_ = True
+
+
+# in any traceback, hide stack frames from this package
+# http://stackoverflow.com/questions/31949760/how-to-limit-python-traceback-to-specific-files
+def _exception_hook(Type, value, tb, original_excepthook=sys.excepthook):
+    import traceback as TB
+    skip = 1
+    while tb:
+        if '_template_hide_traceback_' not in tb.tb_frame.f_globals:
+            if skip:
+                skip -= 1
+            else:
+                TB.print_tb(tb, limit=1)
+        tb = tb.tb_next
+    print(Type.__name__ + ":", value, file=sys.stderr)
+
+sys.excepthook = _exception_hook
+
 # ################################################ module constants
 
 file_extension = '.pyt'
@@ -91,29 +110,8 @@ host_module = _importer_module
 host_module_globals = _importer_module.__dict__
 
 from .gather import gather, decorator
-from .load import loader, exec_template_in_host_module
-
-# ################################################  try_render
-
-
-def try_render():
-    global host_module_globals
-
-    # https://docs.python.org/2/library/atexit.html
-    render = host_module_globals.get("render")
-    if isinstance(render, types.FunctionType):
-        # print("calling render")
-        try:
-            print(render(), end="")
-            status = 0
-        except:
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-            status = 1
-    else:
-        print("no template render function defined", file=sys.stderr)
-        status = 1
-    return status
+from .load import loader
+from .compile import exec_template_in_host_module
 
 # ################################################  CODE
 
@@ -143,4 +141,12 @@ if importer_is_main and extension == file_extension:
 
     exec_template_in_host_module(importer_filename)
 
-    sys.exit(try_render())
+    # https://docs.python.org/2/library/atexit.html
+    render = host_module_globals.get("render")
+    if isinstance(render, types.FunctionType):
+        # error handling handled by sys.excepthook at top of __init__.py
+        print(render(), end="")
+        sys.exit(0)
+    else:
+        print("no render function defined for template", file=sys.stderr)
+        sys.exit(1)
