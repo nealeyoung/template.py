@@ -142,6 +142,6 @@ basename, extension = os.path.splitext(importer_filename)
 if importer_is_main and extension == file_extension:
     base = os.path.splitext(os.path.basename(importer_filename))[0]
     template_module_name = 'template.' + base
-    exec_template_in_host_module(importer_filename, template_module_name)
+    exec_template_in_host_module(importer_filename)
     status = try_render()
     sys.exit(status)

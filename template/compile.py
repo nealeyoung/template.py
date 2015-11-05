@@ -3,21 +3,38 @@
 import ast
 import sys
 import re
+import itertools
 
 from . import decorator_name, gatherer_function_name
+
+_filename = None
 
 
 def compile_template_file(filename):
     '''
-    Return python codeobj for pyt source in filename.
+    Compile template file into a python code object.
     '''
 
     with open(filename) as f:
         code = f.read()
-    tree = ast.parse(code, filename=filename, mode='exec')
-    tree = _Pyt_to_python().visit(tree)
-    ast.fix_missing_locations(tree)
-    return compile(tree, filename, mode='exec', dont_inherit=True)
+
+    # Template file syntax is valid Python syntax,
+    # but with slightly different semantics.
+    # 1. Parse the template file using Python syntax.
+
+    template_AST = ast.parse(code, filename=filename, mode='exec')
+
+    # 2. Change the syntax tree to implement the modified semantics.
+
+    global _filename, _pyt_to_python
+    _filename = filename
+    python_AST = _pyt_to_python.visit(template_AST)
+
+    ast.fix_missing_locations(python_AST)
+
+    # 3. Compile the modified syntax tree as Python.
+
+    return compile(python_AST, filename, mode='exec', dont_inherit=True)
 
 
 def _split_by_braces(strng):
@@ -25,6 +42,8 @@ def _split_by_braces(strng):
     Split strng into pieces separated by _top_level_ pairs of braces.
     e.g. split 'aa{{b{{c}} }}d{{e}}' to ['aa', ' b{{c}} ', 'd', 'e', ''].
     For each piece, return (depth, piece). Depth alternates 0 and 1.
+
+    Used below to implement the dequote mechanism.
     '''
     start = depth = 0
     for match in re.finditer(r"{{|}}", strng):
@@ -33,48 +52,61 @@ def _split_by_braces(strng):
         if depth < 0:
             raise Exception("unbalanced format string " + strng)
         if depth == 0 or prev_depth == 0:
-            yield (prev_depth, strng[start:match.start()])
+            yield strng[start:match.start()]
             start = match.end()
     if depth > 0:
         raise Exception("unbalanced format string " + strng)
-    yield (depth, strng[start:len(strng)])
+    yield strng[start:len(strng)]
 
 
 class _Pyt_to_python(ast.NodeTransformer):
     '''
-    Transform pyt abstract syntax tree into python AST.
+    Given pyt abstract syntax tree (AST), transform it into a python AST.
     See e.g. https://greentreesnakes.readthedocs.org/en/latest/.
     '''
 
-    def visit_Str(self, str_node):
+    def visit_Str(self, node):
         '''
-        Replace each string constant with its {{...}} expansion.
+        Dequote each string constant (expand {{...}} appropriately).
         '''
-        s = str_node.s
-        s = re.sub(r"##.*", "", s)
+
+        def str_node(substr):
+            assert isinstance(substr, str)
+            return ast.Str(s=substr)
+
+        def parse_tree(substr):
+            global _filename
+            try:
+                arg_node = ast.parse("str(" + substr + ")",
+                                     filename="<format string>",
+                                     mode='eval').body
+            except:
+                print("format parse error", file=sys.stderr)
+                print('substring', substr, file=sys.stderr)
+                print('File "' + _filename +
+                      '", line', node.lineno, file=sys.stderr)
+                sys.exit(1)
+
+            # recursively process the new subtree
+            return self.generic_visit(arg_node)
+
+        s = node.s
+        s = re.sub(r"##.*", "", s)  # remove comments
+        if not s:
+            return str_node("")
+
+        # split s around its {{ ... }} segments
+        # see doc for _split_by_braces
         split = tuple(_split_by_braces(s))
-        if len(split) == 0 or (len(split) == 1 and s == str_node.s):
-            return str_node
 
-        args = []
-        for depth, substr in split:
-            if substr:
-                if depth == 0:
-                    args.append(ast.Str(s=substr))
-                else:
-                    try:
-                        arg_node = ast.parse("str(" + substr + ")",
-                                             filename="<format string>",
-                                             mode='eval')
-                    except:
-                        print("format parse error", file=sys.stderr)
-                        print('substring', substr, file=sys.stderr)
-                        print('File "' + filename +
-                              '", line', str_node.lineno, file=sys.stderr)
-                        sys.exit(1)
-                    args.append(self.generic_visit(arg_node.body))
+        if len(split) == 1:
+            return ast.Str(s=split[0])
 
-        func_node = ast.Attribute(value=ast.Str(""),
+        args = [f(substr) for (substr, f) in
+                zip(split, itertools.cycle((str_node, parse_tree)))]
+
+        # build and return node for "".join(tuple(args))
+        func_node = ast.Attribute(value=str_node(""),
                                   attr="join",
                                   ctx=ast.Load())
         call_node = ast.Call(func=func_node,
@@ -86,8 +118,8 @@ class _Pyt_to_python(ast.NodeTransformer):
 
     def visit_Expr(self, node):
         '''
-        Expr's are statement-expressions.
-        Modify the tree to call gather on the value of each.
+        Modify the tree to call the gather function on the value of
+        each Expr in the template.  (Expr's are statement-expressions.)
         '''
         node = self.generic_visit(node)
         func = ast.Name(id=gatherer_function_name,
@@ -102,9 +134,11 @@ class _Pyt_to_python(ast.NodeTransformer):
 
     def visit_FunctionDef(self, node):
         '''
-        Add decorate decorator to every function definition.
+        Add the decorator to every function definition.
         '''
         node = self.generic_visit(node)
         func = ast.Name(id=decorator_name, ctx=ast.Load())
         node.decorator_list.append(func)
         return node
+
+_pyt_to_python = _Pyt_to_python()
