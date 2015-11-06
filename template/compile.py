@@ -39,11 +39,8 @@ def compile_template_file(filename):
 
     # 3. Compile the modified syntax tree as Python.
 
-    # TODO: do we need error handling here?
-    try:
+    with template_traceback_frames_hidden:
         return compile(python_AST, filename, mode='exec', dont_inherit=True)
-    except:
-        assert False, "UNEXPECTED ERROR COMPILING TEMPLATE"
 
 
 def _split_by_braces(strng):
@@ -149,7 +146,7 @@ class _Pyt_to_python(ast.NodeTransformer):
 
     def visit_FunctionDef(self, node):
         '''
-        Add the decorator to every function definition.
+        Add the decorator to the definition of every function.
         '''
         node = self.generic_visit(node)
         func = ast.Name(id=decorator_name, ctx=ast.Load())

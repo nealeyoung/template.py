@@ -41,21 +41,29 @@ def decorator(fn):
     def fn2(*args, **kwds):
         global active
 
-        tmp, active = active, []
+        special_method = fn.__name__.startswith('__')
+
+        if not special_method:
+            tmp, active = active, []
 
         with template_traceback_frames_hidden:
             result1 = fn(*args, **kwds)
-
         result2 = "".join(active)
+
+        if special_method:
+            return result1
+
         active = tmp            # restore previously active list
 
         if result1 is None:
             return result2
+
         if result2 != "":
             print("template warning: discarding gathered value",
                   '"' + result2 + '"',
                   "from function", fn.__name__,
                   file=sys.stderr)
+
         return result1
 
     fn2._template_wraps = fn
